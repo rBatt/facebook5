@@ -1,0 +1,22 @@
+#' Training Data Set
+#' 
+#' Training data set from the Facebook 5 Kaggle competition
+#' 
+#' @details From the competition:
+#' "Facebook created an artificial world consisting of more than 100,000 places located in a 10 km by 10 km square. For a given set of coordinates, your task is to return a ranked list of the most likely places. Data was fabricated to resemble location signals coming from mobile devices, giving you a flavor of what it takes to work with real data complicated by inaccurate and noisy values. Inconsistent and erroneous location data can disrupt experience for services like Facebook Check In."
+#' 
+#' @seealso \link{test}
+#' 
+#' @format data.table
+"train"
+
+#' Test Data Set
+#' 
+#' Test data set from the Facebook 5 Kaggle competition
+#' 
+#' @details Need to predict unknown \code{place_id}'s for this data set.
+#' 
+#' @seealso \link{train}
+#' 
+#' @format data.table
+"test"

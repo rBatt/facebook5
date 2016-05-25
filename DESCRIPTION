@@ -1,0 +1,21 @@
+Package: battFb5
+Title: Batt Submission to Facebook 5 Competition
+Version: 0.0.1
+Authors@R: person("Ryan", "Batt", email = "battrd@gmail.com", role = c("aut", "cre"))
+Description: Facebook recruiting via a Kaggle competition. Given x, y, and time
+    values, determine to which ID each point belongs. The context is cell phone GPS
+    locations and time stamps, and trying to associate mobile phones with a business
+    (a geographic area). Measurements of certainty are also provided.
+Depends:
+    R (>= 3.2.2),
+    data.table,
+    trawlData,
+    bit64
+License: What license is it under?
+LazyData: true
+Imports:
+    data.table
+Suggests:
+    nnet,
+    caret
+RoxygenNote: 5.0.1
