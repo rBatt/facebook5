@@ -9,6 +9,7 @@ library(Metrics)
 library(rbLib)
 library(forecast)
 library(WaveletComp)
+library(foreach)
 
 
 # ============
@@ -60,8 +61,9 @@ ts_predict <- function(y_set, x_n_hour, time_skele, y_hr, nX){
 	
 }
 
-eg_id <- c("8772469670", "1623394281", "1308450003", "4823777529", "9586338177", "9129780742", "9544215131", "4638096372", "5351837004", "8610202964", "7445190392", "7498749584", "7663770365", "7863750419", "7933330073", "8216243815", "8328906659", "8341850327", "8365888303", "8410957884", "8628643901", "1014661751", "1008823061", "1054647709", "1037530880", "2496385414", "2260673088")
-eg_id <- data.table(place_id=as.integer64(eg_id))
+# eg_id <- c("8772469670", "1623394281", "1308450003", "4823777529", "9586338177", "9129780742", "9544215131", "4638096372", "5351837004", "8610202964", "7445190392", "7498749584", "7663770365", "7863750419", "7933330073", "8216243815", "8328906659", "8341850327", "8365888303", "8410957884", "8628643901", "1014661751", "1008823061", "1054647709", "1037530880", "2496385414", "2260673088")
+# eg_id <- data.table(place_id=as.integer64(eg_id))
+eg_id <- data.table(place_id=play_train[,unique(place_id)])
 
 # ---- set up arguments to pass ----
 Y_set <- play_test[,list(row_id,Hour)][,list(n_tot=.N),by="Hour"]
@@ -74,6 +76,13 @@ y_hr <- Y_set[,sort(unique(Hour))]
 nX_all <- play_train[,.N,keyby=c("place_id","Hour")]
 
 doParallel::registerDoParallel(cores=6)
-ts_forecasts <- foreach::foreach(eg = 1:nrow(eg_id), .combine=rbind) %dopar% {
-	data.table(eg_id[eg], as.data.table(ts_predict(y_set=Y_set, x_n_hour, time_skele, y_hr, nX=nX_all[eg_id[eg], on="place_id"])))
+ts_forecasts <- foreach::foreach(eg = 1:nrow(eg_id), .combine=rbind, .multicombine=TRUE) %dopar% {
+	tryCatch(
+		data.table(eg_id[eg], as.data.table(ts_predict(y_set=Y_set, x_n_hour, time_skele, y_hr, nX=nX_all[eg_id[eg], on="place_id"])))[ts_forecast>0.01],
+		error=function(cond) data.table(eg_id[eg], Hour=NA, ts_forecast=NA)
+	)
 }
+
+
+save(ts_forecasts, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/data/ts_forecasts.RData")
+
