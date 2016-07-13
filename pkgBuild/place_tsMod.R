@@ -86,3 +86,43 @@ ts_forecasts <- foreach::foreach(eg = 1:nrow(eg_id), .combine=rbind, .multicombi
 
 save(ts_forecasts, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/data/ts_forecasts.RData")
 
+
+
+
+# ================
+# = Test Guesses =
+# ================
+blah <- test_full[,.N,by=c("xy_group","Hour")]
+niter <- nrow(blah)
+
+pb <- txtProgressBar(min=1, max=niter, initial=1, style=3)
+iter <- 0
+
+xy_pid[, place_id:=as.integer64(place_id)]
+
+merge(ts_forecasts, xy_pid, all.x=TRUE, all.y=FALSE, by=c("place_id"), allow.cartesian=TRUE)
+
+ts_guesses_test <- test_full[1:100,j={
+	iter <<- iter + 1L
+	setTxtProgressBar(pb, iter)
+	u_pid <- xy_pid[xy_group, unique(place_id)]
+	u_hr <- unique(Hour)
+	sub_dt <- data.table(place_id=u_pid, Hour=u_hr)
+	candidates <- ts_forecasts[sub_dt, on=c("place_id","Hour")]
+	setorder(candidates, -ts_forecast, na.last=TRUE)
+	top3 <- candidates[1:3,place_id]
+	data.table(.SD, k1=top3[1], k2=top3[2], k3=top3[3])
+},by=c("xy_group","Hour"), .SDcols=c("xy_group","Hour","row_id")]
+
+
+# ===============
+# = Save Things =
+# ===============
+save(ts_guesses_test, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/data/ts_guesses_test.RData", compress="xz")
+ts_submission <- ts_guesses_test[,list(place_id=paste(k1,k2,k3, collapse=" ")), keyby="row_id"]
+setkey(ts_submission, row_id)
+save(ts_submission, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/submissions/last_submission.RData")
+write.csv(ts_submission, file=renameNow("~/Documents/School&Work/kaggle/facebook5/pkgBuild/submissions/ts_submission.csv"), row.names=FALSE, quote=FALSE)
+
+
+

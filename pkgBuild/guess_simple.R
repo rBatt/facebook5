@@ -18,236 +18,244 @@ library(ks)
 # ===========
 use_old <- TRUE
 
+# =====================
+# = Load TS Forecasts =
+# =====================
+load("~/Documents/School&Work/kaggle/facebook5/pkgBuild/data/ts_forecasts.RData")
+setkey(ts_forecasts, place_id, Hour)
+
 
 # =====================
 # = Load R Data Files =
 # =====================
-load(file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/data/train_full.RData")
-load(file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/data/test_full.RData")
+# load(file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/data/train_full.RData")
+# load(file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/data/test_full.RData")
+
+train_full <- copy(battFb5::train)
+test_full <- copy(battFb5::test)
+
+train_full[,place_id:=as.character(place_id)]
+
+full_xyrid <- rbind(train_full[, list(row_id, x, y, place_id)], test_full[, list(row_id, x, y, place_id=NA_character_)])
+full_xyrid[,c("rg_x","rg_y"):=list(cut(x,14), cut(y,100))]
+full_xyrid[,c("xy_group"):=list(paste(rg_x, rg_y))]
+
+train_full <- merge(train_full, full_xyrid[!is.na(place_id),list(row_id,rg_x,rg_y,xy_group)], by=c("row_id"), all.x=TRUE, all.y=FALSE)
+test_full <- merge(test_full, full_xyrid[is.na(place_id),list(row_id,rg_x,rg_y,xy_group)], by=c("row_id"), all.x=TRUE, all.y=FALSE)
+
+train_full[,c("rg_x","rg_y"):=NULL]
+test_full[,c("rg_x","rg_y"):=NULL]
+
+train_full[,place_id:=as.integer64(place_id)]
+
+train_full[,c("Hour"):=list(time%/%60)]
+setkey(train_full, row_id, place_id, Hour)
+
+test_full[,c("Hour"):=list(time%/%60)]
+setkey(test_full, row_id, Hour)
 
 
-
-# =========================
-# = Try some other models =
-# =========================
-
-# play <- train_full[1:1E5]
-# train_ind <- sample(1:nrow(play), 0.75*nrow(play))
-# pTrain <- play[train_ind,list(x,y,Day)]
-# pTrainTarg <- play[train_ind, place_id]
-# pValid <- play[-train_ind, list(x,y,Day)]
-# pValidTarg <- play[-train_ind, place_id]
-
-# --- vbmp never even finished
-# source("https://bioconductor.org/biocLite.R")
-# biocLite("vbmp")
-# pTheta <- rep(1, ncol(pTrain))
-# vout <- vbmp(pTrain, t.class=pTrainTarg, X.TEST=pValid, t.class.TEST=pValidTarg, theta=pTheta)
-
-
-# tr_lda <- train(play[,list(x,y)], y=play[,factor(place_id)], method="rFerns", tuneLength=1, trControl=trainControl(method="none",search='random', returnData=FALSE)) # slow, but ran on small set
-
-# xgb_params <- list(
-# 	objective="multi:softprob",
-# 	num_class=length(unique(pTrainTarg)),
-# 	eval_metric = "merror"
-# )
-#
-#
-# xgb_scaling <- function(x, y, nK){
-#
-# 	y <- as.character(y)
-#
-# 	u_targs <- unique((y))
-# 	targ_ind <- u_targs %in% sample(u_targs, nK)
-#
-# 	xgb_params <- list(
-# 		objective="multi:softprob",
-# 		num_class=length(u_targs),
-# 		eval_metric = "merror"
+# ======================
+# = Add Scores to Data =
+# ======================
+# time_score <- function(X){
+# 	X[,list(time_wt=0.25^(-(Day-max(Day))))][,time_wt]#[,time_wt/sum(time_wt)]
+# }
+# accuracy_score <- function(X){
+# 	X[,list(acc_wt=0.5^pmax(0,-(accuracy-1)))][,acc_wt]#[,acc_wt/sum(acc_wt)]
+# }
+# abundance_score <- function(X){
+# 	# X[,1/.N]
+# 	nms <- X[,place_id]
+# 	pt <- X[,cumsum(sort(prop.table(table(place_id)),dec=T))]
+# 	pt[as.character(nms)]
+# }
+# pid_ecdf <- function(X, score_cat=c("t_score","acc_score","abu_score")){
+# 	score_cat <- match.arg(score_cat)
+# 	switch(score_cat,
+# 		t_score = X[!duplicated(place_id),ecdf(t_score)](X[,t_score]),
+# 		acc_score = X[!duplicated(place_id),ecdf(acc_score)](X[,acc_score]),
+# 		abu_score = X[!duplicated(place_id),ecdf(abu_score)](X[,abu_score])
 # 	)
-#
-# 	y_sub <- as.integer(factor(y[targ_ind])) - 1
-# 	x_sub <- x[(targ_ind)]
-#
-# 	xg_time <- system.time({xg_out <- xgboost(as.matrix(x_sub), y_sub, nrounds=3, params=xgb_params, verbose=0)})
-#
-# 	return(xg_time[3])
-#
 # }
+
+
+# # =============================
+# # = Adjust / Add to Data Sets =
+# # =============================
+# t_both <- rbind(train_full, test_full, fill=TRUE)
+# t_both[,c("big_xy"):=list(paste(cut(x,5), cut(y,20)))]
+# train_full <- t_both[!is.na(place_id)]
+# test_full <- t_both[is.na(place_id)]
+# both_range_x <- t_both[,range(x)]
+# both_range_y <- t_both[,range(y)]
 #
-# xgb_scaling(pTrain, pTrainTarg, 100)
+# # ---- Specify x- and y-range in each xy-group ----
+# # xy_range <- t_both[,list(xmin=min(x),xmax=max(x),ymin=min(y),ymax=max(y)),by=c("xy_group")]
+# xy_range <- t_both[,list(xmin=quantile(x, 0.1),xmax=quantile(x, 0.9),ymin=quantile(y, 0.1),ymax=quantile(y, 0.9)),by=c("xy_group")]
+# setkey(xy_range, xy_group)
 #
-# xgb_results <- data.table(nK=seq(10, 500, by=50))
-# xgb_results[,xTime:=xgb_scaling(pTrain,pTrainTarg,nK[1]),by="nK"]
+# rm(list="t_both")
+# gc()
+# test_full[,place_id:=NULL]
+
+# train_full[,c("t_score","acc_score","abu_score"):=list(time_score(.SD),accuracy_score(.SD),abundance_score(.SD)),by=c("big_xy")]
+# test_full[,c("t_score","acc_score","abu_score"):=list(time_score(.SD),accuracy_score(.SD)),by=c("big_xy")]
+
+
+# ================================================
+# = Split Into Train, Valid, Test, Add Groupings =
+# ================================================
+# setkey(train_full, place_id)
+
+# ---- create train and validation sets ----
+# if(use_old){
+# 	load("~/Documents/School&Work/kaggle/facebook5/pkgBuild/kde_data/train_set.RData")
+# 	load("~/Documents/School&Work/kaggle/facebook5/pkgBuild/kde_data/valid_set.RData")
+# }else{
+# 	pidtbl <- train_full[,table(place_id)]
+# 	train_full2 <- train_full[!place_id%in%names(pidtbl)[pidtbl<2]]
+# 	train_full2[,place_id:=factor(place_id)]
+# 	tv_part <- createDataPartition(train_full2[,place_id], 0.85)
+# 	train_set <- train_full2[tv_part[[1]]]
+# 	valid_set <- train_full2[-tv_part[[1]]]
 #
-#
-# tr_xgb <- xgboost(as.matrix(pTrain), as.integer(factor(pTrainTarg))-1, nrounds=10, params=xgb_params, verbose=1)
-#
-# tr_xgb_y_pred <- predict(tr_xgb, as.matrix(test_full[1:100,list(x,y,Day)]))
-# tr_xgb_pred_full <- matrix(tr_xgb_y_pred, ncol=length(unique(pTrainTarg)), byrow=TRUE)
-# colnames(tr_xgb_pred_full) <- unique(as.character(pTrainTarg))
-# top_preds <- function(preds, k=3){
-# 	np <- colnames(preds)
-# 	nc_x <- ncol(preds)
-# 	k <- 3
-# 	q_rank <- function(x){np[sapply(sort(as.numeric(x), index.return=TRUE), `[`, nc_x:(nc_x-k+1))[,-1]]}
-# 	top_k <- apply(preds, 1, q_rank)
-# 	# top_k <- gsub("p", "", top_k)
-# 	top_k_form <- apply(top_k, 2, paste, collapse = " ")
-# 	return(top_k_form)
+# 	save(train_set, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/kde_data/train_set.RData", compress="xz")
+# 	save(valid_set, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/kde_data/valid_set.RData", compress="xz")
 # }
-# tr_xgb_pred <- top_preds(tr_xgb_pred_full)
 
+# ---- Associated place_id with xy_group ----
+xy_pid <- train_full[,list(place_id=as.character(unique(place_id))), by=c("xy_group")] #unique(train_full[,list(xy_group,place_id=as.character(place_id))])
+xy_pid[, place_id:=as.integer64(place_id)]
+setkey(xy_pid, xy_group, place_id)
 
+# ---- Free Up Memory ----
+rm(list=c("train_full"))
+gc()
 
-
-# ===============================================
-# = Figure out frequency distribution of places =
-# ===============================================
-# pt <- train_full[,prop.table(table(place_id))]
-#
-# seq(1E-7,5E-5,length.out=1E3)
-# pt_cum <- sapply(seq(1E-7,5E-5,length.out=1E3), function(x)sum(pt>x))
-
-
-#
-#
-# # ===============================================
-# # = Figure out frequency distribution of places =
-# # ===============================================
-# pt <- train_full[,prop.table(table(place_id))]
-# pt_grad <- seq(1E-7,5E-5,length.out=1E3)
-# pt_n <- sapply(pt_grad, function(x)sum(pt>x))
-# pt_prop <- sapply(pt_grad, function(x)sum(pt[pt>x]))
-#
-# plot(pt_grad, pt_n, type="l")
-# par(new=TRUE)
-# plot(pt_grad, pt_prop, xaxt="n",yaxt="n", xlab="", ylab="", type="l")
-# axis(side=4)
-#
-#
-#
-# train_full[,c("rg_x","rg_y"):=list(cut(x,2), cut(y,10))]
-# train_full[,c("xy_big"):=list(paste(rg_x, rg_y))]
-# train_full[,c("rg_x","rg_y"):=NULL]
-#
-# # n_groups <- train_full[,lu(xy_big)]
-# par(mfrow=c(9,9), mar=c(3,3,1,1), cex=1, ps=9, mgp=c(1,0.5,0), tcl=-0.1)
-# train_full[,j={
-#
-# 	pt <- prop.table(table(place_id))
-# 	pt_grad <- seq(5E-4,1E-2,length.out=1E3)
-# 	pt_n <- sapply(pt_grad, function(x)sum(pt>x))
-# 	pt_prop <- sapply(pt_grad, function(x)sum(pt[pt>x]))
-#
-#
-#
-# 	plot(pt_grad, pt_n, type="l", main=paste(xy_big[1], Part_of_Day[1],sep=", "))
-# 	abline(h=100, col="red", lwd=0.5)
-#
-# 	par(new=TRUE)
-# 	plot(pt_grad, pt_prop, xaxt="n",yaxt="n", xlab="", ylab="", type="l")
-# 	axis(side=4)
-# 	abline(h=0.75/81, col="blue")
-#
-#
-# },by=c("xy_big","Part_of_Day")]
-
-
-
-# # ===============================================
-# # = Figure out frequency distribution of places =
-# # ===============================================
-# pt <- train_full[,prop.table(table(place_id))]
-# pt_grad <- seq(1E-7,5E-5,length.out=1E3)
-# pt_n <- sapply(pt_grad, function(x)sum(pt>x))
-# pt_prop <- sapply(pt_grad, function(x)sum(pt[pt>x]))
-#
-# plot(pt_grad, pt_n, type="l")
-# par(new=TRUE)
-# plot(pt_grad, pt_prop, xaxt="n",yaxt="n", xlab="", ylab="", type="l")
-# axis(side=4)
-#
-#
-#
-# train_full[,c("rg_x","rg_y"):=list(cut(x,4), cut(y,20))]
-# train_full[,c("xy_big"):=list(paste(rg_x, rg_y))]
-# train_full[,c("rg_x","rg_y"):=NULL]
-#
-# # n_groups <- train_full[,lu(xy_big)]
-# par(mfrow=c(9,9), mar=c(3,3,1,1), cex=1, ps=9, mgp=c(1,0.5,0), tcl=-0.1)
-# train_full[Day>0.8,j={
-#
-# 	pt <- prop.table(table(place_id))
-# 	pt_grad <- seq(1E-4,1E-2,length.out=1E3)
-# 	pt_n <- sapply(pt_grad, function(x)sum(pt>x))
-# 	pt_prop <- sapply(pt_grad, function(x)sum(pt[pt>x]))
-#
-#
-#
-# 	# plot(pt_grad, pt_n, type="l", main=paste(xy_big[1], Part_of_Day[1],sep=", "))
-# 	# abline(h=100, col="red", lwd=0.5)
-# 	#
-# 	# par(new=TRUE)
-# 	# plot(pt_grad, pt_prop, xaxt="n",yaxt="n", xlab="", ylab="", type="l")
-# 	# axis(side=4)
-# 	# abline(h=0.75/81, col="blue")
-#
-# 	plot(pt_prop, pt_n, type="l")
-# 	abline(h=200, col="red")
-# 	abline(v=0.75, col="blue")
-#
-#
-# },by=c("xy_big")]
-
-
-
-
-
-
-
-# ===========================================================================================
-# = Do a K-D Density Estimate to Estimate Probability of Each place_id for Each Observation =
-# ===========================================================================================
-# tr_xmin <- play[,c(min(x),min(y),min(Day_of_Week),min(Hour_of_Day))]
-# tr_xmax <- play[,c(max(x),max(y),max(Day_of_Week),max(Hour_of_Day))]
-# tr_xmin <- train_full[,c(min(x),min(y),min(Hour_of_Day))]
-# tr_xmax <- train_full[,c(max(x),max(y),max(Hour_of_Day))]
-#
-# setkey(train_full, place_id, time)
-# pop1_ind <- train_full[,place_id==train_full[,names(sort(table(place_id),dec=TRUE))[200]]]
-# play_kde <- train_full[pop1_ind, ks::kde(.SD[,list(x,y)], w=acc_score)]
-#
-# par(mfrow=c(1,1), mar=c(1,1,0.5,0.1), ps=6, mgp=c(0.5,0.1,0), tcl=-0.01, cex=1)
-# p1_split <- cut(1:sum(pop1_ind), 300)
-# vline <- train_full[pop1_ind, mean(x)]
-# hline <- train_full[pop1_ind, mean(y)]
-# xlim <- train_full[pop1_ind, quantile(x, c(0.01,0.975))]
-# ylim <- train_full[pop1_ind, quantile(y, c(0.01,0.99))]
-# for(s in 1:length(unique(p1_split))){
-# 	t_ps <- p1_split%in%unique(p1_split)[s]
-# 	play_kde <- train_full[pop1_ind][t_ps, ks::kde(.SD[,list(x,y)], w=acc_score)]
-# 	if(s==1){
-# 		plot(play_kde, xlim=xlim, ylim=ylim, col=zCol(300, train_full[pop1_ind,time])[t_ps])
-# 	}else{
-# 		plot(play_kde, xlim=xlim, ylim=ylim, add=TRUE, col=zCol(300, train_full[pop1_ind,time])[t_ps])
-# 	}
-#
-# 	Sys.sleep(0.5)
-#
-# 	abline(v=vline, h=hline, lwd=0.5, col="blue")
-# 	mtext(train_full[pop1_ind][t_ps,round(mean(Part_of_Day),2)], adj=1, font=2)
+# ---- Add KDE Prediction Group ----
+# split_grp <- function(X, group_size){
+# 	x <- 1:nrow(X)
+# 	vec <- quantile(x, seq(0,1,by=(1/nrow(X))*group_size), names=FALSE)
+# 	fi <- findInterval(x, vec)
+# 	# X[,group_fact:=fi]
+# 	fi
 # }
-# plot(play_kde, add=F, display="persp", drawpoints=TRUE)
-#
-# plot(play_kde)
-# train_full[pop1_ind]
-# train_full[,day0:=Day-min(Day)]
-# train_full[pop1_ind, length(zCol(256,accuracy))]
-# kde_cols <- train_full[pop1_ind, zCol(length(acc_score),acc_score)]
-# train_full[pop1_ind, plot(x,y, col=adjustcolor(kde_cols, 0.5))]
 
+# setkey(train_set, xy_group)
+# setkey(valid_set, xy_group)
+# setkey(test_full, xy_group)
+
+# train_set[,group_fact:=split_grp(.SD, 100),by=c("xy_group")]
+# valid_set[,group_fact:=split_grp(.SD, 100),by=c("xy_group")]
+# test_full[,group_fact:=split_grp(.SD, 100),by=c("xy_group")]
+
+# ---- Counters ----
+# n_gf_train <- nrow(train_set[,1,by=c("group_fact","xy_group")]) #train_set[,lu(group_fact)]
+# n_gf_valid <- nrow(valid_set[,1,by=c("group_fact","xy_group")]) #valid_set[,lu(group_fact)]
+# n_gf_test <- nrow(test_full[,1,by=c("group_fact","xy_group")]) #test_full[,lu(group_fact)]
+# n_pid_train <- nrow(train_set[,1,by=c("place_id")]) #train_set[,lu(place_id)]
+#
+# setkey(train_set, xy_group, group_fact, place_id)
+# setkey(valid_set, xy_group, group_fact, place_id)
+# setkey(test_full, xy_group, group_fact)
+
+
+# ==============================
+# = Try Simple Grid Classifier =
+# ==============================
+# train_set[1:1E3, list(abu_score=(unique(abu_score))), by=c("xy_group","place_id")] # if precalculated abundance score
+# t_score <- train_set[1:1E3, list(place_id=place_id, abu_score=abundance_score(.SD)), by=c("xy_group")] # calculate score on fly
+# setkey(t_score, xy_group, place_id)
+# t_score <- unique(t_score)
+# setorder(t_score, -abu_score)
+
+blah <- test_full[,.N,by=c("xy_group","Hour")]
+niter <- nrow(blah)
+
+# ================
+# = Test Guesses =
+# ================
+# pb <- txtProgressBar(min=1, max=niter, initial=1, style=3)
+# pb <- txtProgressBar(min=1, max=10, initial=1, style=3)
+# iter <- 0
+
+# ugh <- dcast.data.table(ts_forecasts, Hour~place_id, value.var="ts_forecast")
+# ugh[,list(Hour, `9999755282`)]
+
+# setorder(ts_forecasts, -ts_forecast, na.last=TRUE)
+# ts_forecasts_mini <- ts_forecasts[,j={
+# 	# setorder(.SD, -ts_forecast, na.last=TRUE)
+# 	head(.SD, 3)
+# }, by="Hour"]
+#
+#  #ts_forecasts[ts_forecast>0.25 & ts_forecast < 500]
+# setkey(ts_forecasts_mini, place_id, Hour)
+
+# fore_xy <- ts_forecasts_mini[xy_pid, on="place_id", allow.cartesian=TRUE]
+fore_xy <- ts_forecasts[xy_pid, on="place_id", allow.cartesian=TRUE]
+fore_xy <- fore_xy[!is.na(Hour) & !is.na(ts_forecast)]
+
+setkey(fore_xy, xy_group, Hour)
+setorder(fore_xy, -ts_forecast, na.last=TRUE)
+fore_xy_mini <- fore_xy[,j={
+	head(.SD, 3)
+}, by=c("xy_group","Hour")]
+
+
+answer <- data.table:::merge.data.table(test_trim, fore_xy_mini, all=TRUE, by=c("xy_group","Hour"), allow.cartesian=TRUE)
+answer2 <- answer[!is.na(row_id)]
+setorder(answer2, -ts_forecast, na.last=TRUE)
+answer3 <- answer2[,list(place_id=paste(place_id[1:3], collapse=" ")),keyby="row_id"]
+ts_submission <- answer3
+
+# fore_xy[1:5,j={
+# 	# iter <<- iter + 1L
+# 	# setTxtProgressBar(pb, iter)
+# 	# u_pid <- xy_pid[xy_group, unique(place_id)]
+# 	# u_hr <- unique(Hour)
+# 	# sub_dt <- data.table(place_id=u_pid, Hour=Hour)
+# 	# candidates <- fore_xy[.SD, on=c("xy_group","Hour")] #ts_forecasts_mini[sub_dt, on=c("place_id","Hour")]
+# 	# setorder(.SD, -ts_forecast, na.last=TRUE)
+# 	print(sort(ts_forecast, decreasing=TRUE, index.return=TRUE))
+# 	top3 <- place_id[sort(ts_forecast, decreasing=TRUE, index.return=TRUE)[1:3]]
+# 	print(.SD)
+# 	# top3_ind <- candidates[,sort(candidates, decreasing=TRUE, index.return=TRUE, na.last=TRUE)]
+# 	# top3 <- .SD[1:3,place_id] # candidates[top3_ind[1:3], place_id] #
+# 	data.table(k1=top3[1], k2=top3[2], k3=top3[3])
+# },by=c("xy_group","Hour")]
+#
+
+
+# merge(ts_forecasts, xy_pid, all.x=TRUE, all.y=FALSE, by=c("place_id"), allow.cartesian=TRUE)
+#
+# test_trim <- test_full[,list(row_id, xy_group, Hour)]
+#
+# ugh <- merge(test_trim, ts_forecasts)
+#
+# Rprof()
+# ts_guesses_test <- test_trim[1:10,j={
+# 	iter <<- iter + 1L
+# 	setTxtProgressBar(pb, iter)
+# 	# u_pid <- xy_pid[xy_group, unique(place_id)]
+# 	# u_hr <- unique(Hour)
+# 	# sub_dt <- data.table(place_id=u_pid, Hour=Hour)
+# 	candidates <- fore_xy[.SD, on=c("xy_group","Hour")] #ts_forecasts_mini[sub_dt, on=c("place_id","Hour")]
+# 	setorder(candidates, -ts_forecast, na.last=TRUE)
+# 	# top3_ind <- candidates[,sort(candidates, decreasing=TRUE, index.return=TRUE, na.last=TRUE)]
+# 	top3 <- candidates[1:3,place_id] # candidates[top3_ind[1:3], place_id] #
+# 	data.table(.SD[,list(row_id)], k1=top3[1], k2=top3[2], k3=top3[3], N=candidates[,length(unique(place_id))])
+# },by=c("xy_group","Hour"), .SDcols=c("row_id","xy_group","Hour")]
+
+
+# ===============
+# = Save Things =
+# ===============
+save(ts_guesses_test, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/data/ts_guesses_test.RData", compress="xz")
+# ts_submission <- ts_guesses_test[,list(place_id=paste(k1,k2,k3, collapse=" ")), keyby="row_id"]
+setkey(ts_submission, row_id)
+save(ts_submission, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/submissions/last_submission.RData")
+write.csv(ts_submission, file=renameNow("~/Documents/School&Work/kaggle/facebook5/pkgBuild/submissions/ts_submission.csv"), row.names=FALSE, quote=FALSE)
 
 
 

@@ -368,3 +368,15 @@ kde_guesses_test <- test_full[,j={
 save(kde_guesses_test, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/kde_preds/kde_guesses_test.RData", compress="xz")
 
 
+# ---- Format Predictions for Submission ----
+kde_submission <- kde_guesses_test[,list(place_id=paste(k1,k2,k3, collapse=" ")), keyby="row_id"]
+setkey(kde_submission, row_id)
+save(kde_submission, file="~/Documents/School&Work/kaggle/facebook5/pkgBuild/submissions/last_submission.RData")
+write.csv(kde_submission, file=renameNow("~/Documents/School&Work/kaggle/facebook5/pkgBuild/submissions/kde_submission.csv"), row.names=FALSE, quote=FALSE)
+
+
+
+
+
+
+
